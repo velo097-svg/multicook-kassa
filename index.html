@@ -516,6 +516,14 @@
     let deliveryPaid = true; // по умолчанию "Оплачено"
     let deliveryPaymentMethod = 'Наличные'; // по умолчанию "Наличные"
 
+    // Виды расходов и список поставщиков почти никогда не меняются —
+    // запрашиваем их с сервера один раз за сеанс (при первом открытии
+    // экрана), а дальше берём из памяти. Экран открывается мгновенно,
+    // без ожидания ответа сервера. Сбрасывается при выходе (logout),
+    // чтобы после повторного входа список подтянулся заново.
+    let expenseTypesCache = null; // { shopName: [...] }
+    let suppliersCache = null;
+
     function show(id) {
       ['screen-login', 'screen-menu', 'screen-report', 'screen-expense', 'screen-delivery', 'screen-success'].forEach(function (s) {
         document.getElementById(s).classList.toggle('hidden', s !== id);
@@ -549,7 +557,10 @@
             document.getElementById('menu-shop-name').textContent = currentShop;
             document.getElementById('password').value = '';
             show('screen-menu');
-            refreshCashBalance();
+            // остаток наличных уже пришёл вместе с ответом на вход —
+            // второй запрос при входе больше не нужен
+            document.getElementById('menu-cash-balance').textContent =
+              Number(res.cashBalance).toLocaleString('ru-RU') + ' ₺';
           } else {
             document.getElementById('login-error').textContent = res.error || 'Неверный пароль';
           }
@@ -562,6 +573,8 @@
 
     function logout() {
       currentShop = null;
+      expenseTypesCache = null;
+      suppliersCache = null;
       show('screen-login');
     }
 
@@ -612,10 +625,17 @@
       document.getElementById('expense-error').textContent = '';
       selectedExpenseType = null;
 
-      // виды расходов запрашиваем заново при каждом входе — у разных
-      // магазинов список может отличаться (см. extraExpenseTypes в Code.gs)
+      // виды расходов запрашиваем с сервера только один раз за сеанс
+      // (кэш в expenseTypesCache) — дальше экран открывается мгновенно
       document.getElementById('expense-type-grid').innerHTML = '';
-      callApi('getExpenseTypes', { shopName: currentShop }).then(renderExpenseTypes);
+      if (expenseTypesCache) {
+        renderExpenseTypes(expenseTypesCache);
+      } else {
+        callApi('getExpenseTypes', { shopName: currentShop }).then(function (types) {
+          expenseTypesCache = types;
+          renderExpenseTypes(types);
+        });
+      }
 
       show('screen-expense');
     }
@@ -684,7 +704,14 @@
       selectPaymentMethod('Наличные', document.querySelector('#delivery-payment-method-row .type-btn'));
 
       document.getElementById('delivery-supplier').innerHTML = '';
-      callApi('getSuppliers').then(renderSuppliers);
+      if (suppliersCache) {
+        renderSuppliers(suppliersCache);
+      } else {
+        callApi('getSuppliers').then(function (suppliers) {
+          suppliersCache = suppliers;
+          renderSuppliers(suppliers);
+        });
+      }
 
       show('screen-delivery');
     }
