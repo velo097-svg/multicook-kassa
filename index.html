@@ -1,0 +1,783 @@
+<!--
+  КАССА — версия для размещения на СВОЁМ сайте (не на script.google.com).
+  ------------------------------------------------------------------
+  Что это за файл:
+  Это самостоятельная веб-страница. Она НЕ зависит от Google-аккаунта
+  того, кто её открывает — вся связь с Google Таблицей идёт фоновыми
+  запросами (через doPost в Code.gs), а не прямым открытием страницы
+  на script.google.com. Поэтому вопрос "почему не открывается на моём
+  гугл-аккаунте" здесь в принципе не может возникнуть — сайт открывается
+  как обычная страница любого сайта, а данные Google Таблицы участвуют
+  только "за кулисами".
+
+  Как подключить (один раз):
+  1. Сначала сделай всё как обычно в Code.gs (см. инструкцию в начале
+     того файла) и разверни веб-приложение (Развернуть → Новое
+     развёртывание → Веб-приложение → Выполнять от имени: Меня →
+     Доступ: Все) — скопируй получившуюся ссылку вида
+     https://script.google.com/macros/s/.../exec
+  2. Ниже в этом файле найди строку "const API_URL = ...", вставь туда
+     эту ссылку вместо ВСТАВЬ_СЮДА_ССЫЛКУ.
+  3. Загрузи этот файл (можно переименовать, например, в index.html)
+     на свой сайт, в папку multicook-tr.com/multicookkass/ (через ту
+     программу/панель, которой обычно загружаешь файлы на сайт —
+     если сам не размещаешь сайты, это сделает тот, кто отвечает за
+     multicook-tr.com).
+  4. Открывай сайт по адресу multicook-tr.com/multicookkass/ — он будет
+     работать всегда, с любого устройства, независимо от Google-аккаунта.
+
+  Важно про безопасность:
+  Ссылка на эту страницу сама по себе никому не известна и нигде не
+  опубликована — случайно её не найти (Google её не индексирует, если
+  никуда на неё не ссылаться). Но если кто-то узнает точный адрес —
+  он увидит экран ввода пароля (как и должно быть), а дальше без
+  правильного 4-значного пароля магазина ничего не откроет. Ниже уже
+  добавлен тег <meta name="robots"> — это просит поисковики не
+  показывать страницу в результатах поиска, для дополнительной
+  скрытности. Если хочется ещё надёжнее — можно попросить
+  веб-мастера сайта закрыть эту папку паролем средствами самого
+  хостинга (HTTP-авторизация), это отдельный, независимый уровень
+  защиты поверх пароля магазина.
+-->
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="robots" content="noindex, nofollow">
+  <style>
+    /* ==================================================================
+       ⚙️ БЛОК ОФОРМЛЕНИЯ — цвета и размеры. Можно менять смело,
+       на логику это не влияет.
+       ================================================================== */
+    :root {
+      --green: #2e7d32;
+      --green-dark: #1b5e20;
+      --red: #c62828;
+      --orange: #e65100;
+      --blue: #1565c0;
+      --blue-dark: #0d47a1;
+      --bg: #f4f5f7;
+      --text: #1a1a1a;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: -apple-system, Roboto, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      min-height: 100vh;
+      padding: 24px 12px;
+    }
+
+    .screen {
+      width: 100%;
+      max-width: 420px;
+      background: #fff;
+      border-radius: 16px;
+      padding: 28px 20px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+    }
+
+    .hidden { display: none; }
+
+    /* заголовок экрана ("Меню", "Дневной отчёт" и т.д.) — маленький и тонкий */
+    h1 {
+      font-size: 14px;
+      font-weight: 400;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+      color: #888;
+      text-align: center;
+      margin: 0 0 6px;
+    }
+
+    /* название магазина — крупное и жирное, главный элемент экрана */
+    .shop-name {
+      text-align: center;
+      font-size: 28px;
+      font-weight: 800;
+      color: var(--text);
+      margin-bottom: 22px;
+    }
+
+    label {
+      display: block;
+      font-size: 15px;
+      margin: 16px 0 6px;
+      font-weight: 600;
+    }
+
+    input, textarea, select {
+      width: 100%;
+      font-size: 20px;
+      padding: 14px;
+      border: 2px solid #ddd;
+      border-radius: 10px;
+      text-align: center;
+      font-family: inherit;
+      background: #fff;
+    }
+
+    textarea {
+      text-align: left;
+      resize: vertical;
+      min-height: 70px;
+    }
+
+    select {
+      text-align-last: center;
+    }
+
+    input:focus, textarea:focus, select:focus {
+      outline: none;
+      border-color: var(--green);
+    }
+
+    button {
+      width: 100%;
+      font-size: 20px;
+      font-weight: 700;
+      padding: 18px;
+      margin-top: 22px;
+      border: none;
+      border-radius: 12px;
+      cursor: pointer;
+      color: #fff;
+    }
+
+    .btn-green { background: var(--green); }
+    .btn-green:active { background: var(--green-dark); }
+
+    /* кнопка во время сохранения — неактивна, чтобы не занести
+       одну и ту же запись дважды при повторном нажатии */
+    button:disabled {
+      opacity: 0.65;
+      cursor: not-allowed;
+    }
+
+    .btn-spinner {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      margin-right: 8px;
+      vertical-align: -3px;
+      border: 3px solid rgba(255,255,255,0.45);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: btn-spin 0.7s linear infinite;
+    }
+
+    /* важно: это правило должно перебивать .btn-spinner выше, иначе
+       спиннер остаётся видимым (и крутится) даже когда должен быть скрыт */
+    .btn-spinner.hidden {
+      display: none;
+    }
+
+    @keyframes btn-spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .btn-back {
+      background: #e0e0e0;
+      color: #333;
+      margin-top: 12px;
+    }
+
+    .error {
+      color: var(--red);
+      text-align: center;
+      font-size: 14px;
+      margin-top: 10px;
+      min-height: 18px;
+    }
+
+    .menu-btn {
+      background: var(--green);
+      margin-top: 16px;
+    }
+
+    /* карточка "сколько наличных сейчас должно быть в кассе" на главном меню */
+    .cash-info {
+      background: #f0f4f8;
+      border-radius: 12px;
+      padding: 14px;
+      text-align: center;
+      margin-bottom: 4px;
+    }
+
+    .cash-info-label {
+      font-size: 13px;
+      color: #666;
+    }
+
+    .cash-info-amount {
+      font-size: 30px;
+      font-weight: 800;
+      color: var(--text);
+      margin: 4px 0;
+    }
+
+    .cash-info-hint {
+      font-size: 12px;
+      color: var(--orange);
+      font-weight: 600;
+    }
+
+    .menu-btn.expense { background: var(--orange); }
+    .menu-btn.delivery { background: var(--blue); }
+
+    .btn-blue { background: var(--blue); }
+    .btn-blue:active { background: var(--blue-dark); }
+
+    /* переключатель "Оплачено / Не оплачено" — тумблер-слайдер,
+       по умолчанию включён (зелёный = оплачено) */
+    .paid-switch-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 10px;
+      padding: 4px 2px;
+    }
+
+    .paid-switch-label {
+      font-size: 20px;
+      font-weight: 700;
+    }
+    .paid-switch-label.paid { color: var(--green); }
+    .paid-switch-label.unpaid { color: var(--red); }
+
+    .switch {
+      position: relative;
+      display: inline-block;
+      width: 64px;
+      height: 36px;
+      flex-shrink: 0;
+    }
+
+    .switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .switch-track {
+      position: absolute;
+      inset: 0;
+      background: var(--red);
+      border-radius: 34px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .switch-track::before {
+      content: "";
+      position: absolute;
+      height: 28px;
+      width: 28px;
+      left: 4px;
+      bottom: 4px;
+      background: #fff;
+      border-radius: 50%;
+      transition: transform 0.2s;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+    }
+
+    .switch input:checked + .switch-track {
+      background: var(--green);
+    }
+
+    .switch input:checked + .switch-track::before {
+      transform: translateX(28px);
+    }
+
+    .success {
+      text-align: center;
+      font-size: 18px;
+      color: var(--green-dark);
+      font-weight: 700;
+      margin: 20px 0;
+    }
+
+    /* --- выбор вида расхода: крупные кнопки со значками вместо списка --- */
+    .type-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 10px;
+    }
+
+    .type-btn {
+      background: #fff;
+      border: 2px solid #ddd;
+      border-radius: 12px;
+      padding: 16px 8px;
+      text-align: center;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+      color: #444;
+    }
+
+    .type-btn .icon {
+      display: block;
+      font-size: 32px;
+      margin-bottom: 6px;
+    }
+
+    .type-btn.selected {
+      border-color: var(--orange);
+      background: #fff3e0;
+      color: var(--orange);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ========================================================
+       ЭКРАН 1 — ВВОД ПАРОЛЯ
+       ======================================================== -->
+  <div id="screen-login" class="screen">
+    <h1>Вход</h1>
+    <label for="password">Пароль магазина</label>
+    <input id="password" type="tel" inputmode="numeric" maxlength="4" placeholder="••••" autofocus>
+    <button class="btn-green" id="login-btn" onclick="submitPassword()"><span class="btn-spinner hidden"></span><span class="btn-label">Войти</span></button>
+    <div id="login-error" class="error"></div>
+  </div>
+
+  <!-- ========================================================
+       ЭКРАН 2 — МЕНЮ КНОПОК
+       (сюда позже будем добавлять новые разделы)
+       ======================================================== -->
+  <div id="screen-menu" class="screen hidden">
+    <h1>Меню</h1>
+    <div class="shop-name" id="menu-shop-name"></div>
+
+    <div class="cash-info">
+      <div class="cash-info-label">Наличных сейчас в кассе</div>
+      <div class="cash-info-amount" id="menu-cash-balance">…</div>
+      <div class="cash-info-hint">⚠️ Пожалуйста, проверьте наличные</div>
+    </div>
+
+    <button class="menu-btn" onclick="openDailyReport()">Дневной отчёт</button>
+    <button class="menu-btn expense" onclick="openExpense()">Расходы</button>
+    <button class="menu-btn delivery" onclick="openDelivery()">Поставки</button>
+
+    <button class="btn-back" onclick="logout()">Выйти</button>
+  </div>
+
+  <!-- ========================================================
+       ЭКРАН 3 — ФОРМА "ДНЕВНОЙ ОТЧЁТ"
+       ======================================================== -->
+  <div id="screen-report" class="screen hidden">
+    <h1>Дневной отчёт</h1>
+    <div class="shop-name" id="report-shop-name"></div>
+
+    <label for="report-date">Дата</label>
+    <input id="report-date" type="date">
+
+    <label for="report-cash">Наличные за день</label>
+    <input id="report-cash" type="number" inputmode="decimal" placeholder="0">
+
+    <label for="report-card">Карта / терминал за день</label>
+    <input id="report-card" type="number" inputmode="decimal" placeholder="0">
+
+    <label for="report-iban">Оплата на IBAN</label>
+    <input id="report-iban" type="number" inputmode="decimal" placeholder="0">
+
+    <button class="btn-green" id="report-save-btn" onclick="submitReport()"><span class="btn-spinner hidden"></span><span class="btn-label">Сохранить</span></button>
+    <button class="btn-back" onclick="backToMenu()">Назад</button>
+
+    <div id="report-error" class="error"></div>
+  </div>
+
+  <!-- ========================================================
+       ЭКРАН 4 — ФОРМА "РАСХОДЫ"
+       ======================================================== -->
+  <div id="screen-expense" class="screen hidden">
+    <h1>Расходы</h1>
+    <div class="shop-name" id="expense-shop-name"></div>
+
+    <label for="expense-date">Дата</label>
+    <input id="expense-date" type="date">
+
+    <label>Вид расхода</label>
+    <div class="type-grid" id="expense-type-grid"></div>
+
+    <label for="expense-amount">Сумма</label>
+    <input id="expense-amount" type="number" inputmode="decimal" placeholder="0">
+
+    <label for="expense-comment">Комментарий (на что потрачено)</label>
+    <textarea id="expense-comment" placeholder="Например: закупили овощи у поставщика Х"></textarea>
+
+    <button class="btn-green" id="expense-save-btn" onclick="submitExpense()"><span class="btn-spinner hidden"></span><span class="btn-label">Сохранить</span></button>
+    <button class="btn-back" onclick="backToMenu()">Назад</button>
+
+    <div id="expense-error" class="error"></div>
+  </div>
+
+  <!-- ========================================================
+       ЭКРАН 5 — ФОРМА "ПОСТАВКИ"
+       ======================================================== -->
+  <div id="screen-delivery" class="screen hidden">
+    <h1>Поставки</h1>
+    <div class="shop-name" id="delivery-shop-name"></div>
+
+    <label for="delivery-date">Дата</label>
+    <input id="delivery-date" type="date">
+
+    <label for="delivery-supplier">Поставщик</label>
+    <select id="delivery-supplier"></select>
+
+    <label for="delivery-items">Что привезли</label>
+    <textarea id="delivery-items" placeholder="Например: сыр моцарелла 10 кг"></textarea>
+
+    <label>Оплата</label>
+    <div class="paid-switch-row">
+      <span class="paid-switch-label paid" id="delivery-paid-label">Оплачено</span>
+      <label class="switch">
+        <input type="checkbox" id="delivery-paid-checkbox" checked onchange="onDeliveryPaidChange()">
+        <span class="switch-track"></span>
+      </label>
+    </div>
+
+    <!-- показывается, только когда включено "Оплачено": наличными сразу
+         списываются с кассы магазина, картой — только фиксируются в "Своде" -->
+    <div id="delivery-payment-method-row">
+      <label>Чем оплачено</label>
+      <div class="type-grid">
+        <div class="type-btn selected" data-method="Наличные" onclick="selectPaymentMethod('Наличные', this)">
+          <span class="icon">💵</span>Наличные
+        </div>
+        <div class="type-btn" data-method="Карта" onclick="selectPaymentMethod('Карта', this)">
+          <span class="icon">💳</span>Карта
+        </div>
+      </div>
+    </div>
+
+    <label for="delivery-amount">Сумма</label>
+    <input id="delivery-amount" type="number" inputmode="decimal" placeholder="0">
+
+    <button class="btn-blue" id="delivery-save-btn" onclick="submitDelivery()"><span class="btn-spinner hidden"></span><span class="btn-label">Сохранить</span></button>
+    <button class="btn-back" onclick="backToMenu()">Назад</button>
+
+    <div id="delivery-error" class="error"></div>
+  </div>
+
+  <!-- ========================================================
+       ЭКРАН 6 — ПОДТВЕРЖДЕНИЕ СОХРАНЕНИЯ
+       ======================================================== -->
+  <div id="screen-success" class="screen hidden">
+    <div class="success">✅ Сохранено</div>
+    <button class="btn-green" onclick="backToMenu()">Готово</button>
+  </div>
+
+  <script>
+    /* ==================================================================
+       ⚙️ Ссылка на веб-приложение Apps Script (Code.gs). Вставь сюда
+       свою ссылку вида https://script.google.com/macros/s/.../exec —
+       без этого сайт работать не будет.
+       ================================================================== */
+    const API_URL = 'https://script.google.com/macros/s/AKfycbygDW0zBmUQO1KhV8j8LX301y1sNBQjL78eJ63rB9pXEvLv3wdnUH3lc43YNVbou7J7lw/exec';
+
+    /* ==================================================================
+       Логика экранов. Трогать не обязательно — всё работает через
+       функции из Code.gs (checkPassword, saveDailyReport,
+       getExpenseTypes, saveExpense, getSuppliers, saveDelivery,
+       getShopCashBalance), только не напрямую (google.script.run),
+       а фоновым запросом (fetch) — поэтому эта страница может
+       находиться на любом сайте, а не только на script.google.com.
+
+       Content-Type здесь специально "text/plain" (а не
+       "application/json") — так браузер отправляет запрос сразу,
+       без предварительного технического запроса (CORS preflight),
+       который Apps Script не умеет обрабатывать. Сам Code.gs всё
+       равно разбирает содержимое как JSON — это нормально, так
+       принято делать именно с Apps Script.
+       ================================================================== */
+    function callApi(action, data) {
+      return fetch(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: action, data: data || {} }),
+      }).then(function (res) {
+        if (!res.ok) throw new Error('network');
+        return res.json();
+      });
+    }
+
+    let currentShop = null;
+    let selectedExpenseType = null;
+    let deliveryPaid = true; // по умолчанию "Оплачено"
+    let deliveryPaymentMethod = 'Наличные'; // по умолчанию "Наличные"
+
+    function show(id) {
+      ['screen-login', 'screen-menu', 'screen-report', 'screen-expense', 'screen-delivery', 'screen-success'].forEach(function (s) {
+        document.getElementById(s).classList.toggle('hidden', s !== id);
+      });
+    }
+
+    // Блокирует/разблокирует кнопку и показывает иконку загрузки —
+    // защита от повторного нажатия, пока идёт сохранение в таблицу.
+    function setButtonLoading(btnId, loading) {
+      const btn = document.getElementById(btnId);
+      btn.disabled = loading;
+      btn.querySelector('.btn-spinner').classList.toggle('hidden', !loading);
+    }
+
+    function todayIso() {
+      const d = new Date();
+      return d.getFullYear() + '-' +
+        String(d.getMonth() + 1).padStart(2, '0') + '-' +
+        String(d.getDate()).padStart(2, '0');
+    }
+
+    function submitPassword() {
+      const pwd = document.getElementById('password').value;
+      document.getElementById('login-error').textContent = '';
+      setButtonLoading('login-btn', true);
+      callApi('checkPassword', { password: pwd })
+        .then(function (res) {
+          setButtonLoading('login-btn', false);
+          if (res.ok) {
+            currentShop = res.shopName;
+            document.getElementById('menu-shop-name').textContent = currentShop;
+            document.getElementById('password').value = '';
+            show('screen-menu');
+            refreshCashBalance();
+          } else {
+            document.getElementById('login-error').textContent = res.error || 'Неверный пароль';
+          }
+        })
+        .catch(function () {
+          setButtonLoading('login-btn', false);
+          document.getElementById('login-error').textContent = 'Ошибка соединения, попробуйте ещё раз';
+        });
+    }
+
+    function logout() {
+      currentShop = null;
+      show('screen-login');
+    }
+
+    // ---------- Дневной отчёт ----------
+
+    function openDailyReport() {
+      document.getElementById('report-shop-name').textContent = currentShop;
+      document.getElementById('report-date').value = todayIso();
+      document.getElementById('report-cash').value = '';
+      document.getElementById('report-card').value = '';
+      document.getElementById('report-iban').value = '';
+      document.getElementById('report-error').textContent = '';
+      show('screen-report');
+    }
+
+    function submitReport() {
+      const date = document.getElementById('report-date').value;
+      const cash = document.getElementById('report-cash').value;
+      const card = document.getElementById('report-card').value;
+      const iban = document.getElementById('report-iban').value;
+
+      if (!date) {
+        document.getElementById('report-error').textContent = 'Укажите дату';
+        return;
+      }
+      document.getElementById('report-error').textContent = '';
+      setButtonLoading('report-save-btn', true);
+
+      callApi('saveDailyReport', { shopName: currentShop, dateStr: date, cash: cash, card: card, iban: iban })
+        .then(function (res) {
+          setButtonLoading('report-save-btn', false);
+          if (res.ok) show('screen-success');
+          else document.getElementById('report-error').textContent = res.error || 'Ошибка сохранения';
+        })
+        .catch(function () {
+          setButtonLoading('report-save-btn', false);
+          document.getElementById('report-error').textContent = 'Ошибка соединения, попробуйте ещё раз';
+        });
+    }
+
+    // ---------- Расходы ----------
+
+    function openExpense() {
+      document.getElementById('expense-shop-name').textContent = currentShop;
+      document.getElementById('expense-date').value = todayIso();
+      document.getElementById('expense-amount').value = '';
+      document.getElementById('expense-comment').value = '';
+      document.getElementById('expense-error').textContent = '';
+      selectedExpenseType = null;
+
+      // виды расходов запрашиваем заново при каждом входе — у разных
+      // магазинов список может отличаться (см. extraExpenseTypes в Code.gs)
+      document.getElementById('expense-type-grid').innerHTML = '';
+      callApi('getExpenseTypes', { shopName: currentShop }).then(renderExpenseTypes);
+
+      show('screen-expense');
+    }
+
+    function renderExpenseTypes(types) {
+      const grid = document.getElementById('expense-type-grid');
+      grid.innerHTML = '';
+      types.forEach(function (t) {
+        const btn = document.createElement('div');
+        btn.className = 'type-btn';
+        btn.innerHTML = '<span class="icon">' + t.icon + '</span>' + t.label;
+        btn.onclick = function () { selectExpenseType(t.label, btn); };
+        grid.appendChild(btn);
+      });
+    }
+
+    function selectExpenseType(label, btnEl) {
+      selectedExpenseType = label;
+      document.querySelectorAll('.type-btn').forEach(function (b) {
+        b.classList.remove('selected');
+      });
+      btnEl.classList.add('selected');
+    }
+
+    function submitExpense() {
+      const date = document.getElementById('expense-date').value;
+      const amount = document.getElementById('expense-amount').value;
+      const comment = document.getElementById('expense-comment').value;
+
+      if (!date) {
+        document.getElementById('expense-error').textContent = 'Укажите дату';
+        return;
+      }
+      if (!selectedExpenseType) {
+        document.getElementById('expense-error').textContent = 'Выберите вид расхода';
+        return;
+      }
+      if (!amount) {
+        document.getElementById('expense-error').textContent = 'Укажите сумму';
+        return;
+      }
+      document.getElementById('expense-error').textContent = '';
+      setButtonLoading('expense-save-btn', true);
+
+      callApi('saveExpense', { shopName: currentShop, dateStr: date, type: selectedExpenseType, amount: amount, comment: comment })
+        .then(function (res) {
+          setButtonLoading('expense-save-btn', false);
+          if (res.ok) show('screen-success');
+          else document.getElementById('expense-error').textContent = res.error || 'Ошибка сохранения';
+        })
+        .catch(function () {
+          setButtonLoading('expense-save-btn', false);
+          document.getElementById('expense-error').textContent = 'Ошибка соединения, попробуйте ещё раз';
+        });
+    }
+
+    // ---------- Поставки ----------
+
+    function openDelivery() {
+      document.getElementById('delivery-shop-name').textContent = currentShop;
+      document.getElementById('delivery-date').value = todayIso();
+      document.getElementById('delivery-items').value = '';
+      document.getElementById('delivery-amount').value = '';
+      document.getElementById('delivery-error').textContent = '';
+      setDeliveryPaid(true); // сброс на "Оплачено" по умолчанию при каждом входе
+      selectPaymentMethod('Наличные', document.querySelector('#delivery-payment-method-row .type-btn'));
+
+      document.getElementById('delivery-supplier').innerHTML = '';
+      callApi('getSuppliers').then(renderSuppliers);
+
+      show('screen-delivery');
+    }
+
+    function renderSuppliers(suppliers) {
+      const select = document.getElementById('delivery-supplier');
+      select.innerHTML = '';
+      suppliers.forEach(function (name) {
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = name;
+        select.appendChild(opt);
+      });
+    }
+
+    // вызывается при переключении тумблера пальцем/кликом
+    function onDeliveryPaidChange() {
+      setDeliveryPaid(document.getElementById('delivery-paid-checkbox').checked);
+    }
+
+    function setDeliveryPaid(paid) {
+      deliveryPaid = paid;
+      document.getElementById('delivery-paid-checkbox').checked = paid;
+      const label = document.getElementById('delivery-paid-label');
+      label.classList.toggle('paid', paid);
+      label.classList.toggle('unpaid', !paid);
+      label.textContent = paid ? 'Оплачено' : 'Не оплачено';
+
+      // выбор "наличные/карта" имеет смысл только когда уже оплачено
+      document.getElementById('delivery-payment-method-row').classList.toggle('hidden', !paid);
+    }
+
+    function selectPaymentMethod(method, btnEl) {
+      deliveryPaymentMethod = method;
+      document.querySelectorAll('#delivery-payment-method-row .type-btn').forEach(function (b) {
+        b.classList.remove('selected');
+      });
+      btnEl.classList.add('selected');
+    }
+
+    function submitDelivery() {
+      const date = document.getElementById('delivery-date').value;
+      const supplier = document.getElementById('delivery-supplier').value;
+      const items = document.getElementById('delivery-items').value;
+      const amount = document.getElementById('delivery-amount').value;
+
+      if (!date) {
+        document.getElementById('delivery-error').textContent = 'Укажите дату';
+        return;
+      }
+      if (!supplier) {
+        document.getElementById('delivery-error').textContent = 'Выберите поставщика';
+        return;
+      }
+      if (!amount) {
+        document.getElementById('delivery-error').textContent = 'Укажите сумму';
+        return;
+      }
+      document.getElementById('delivery-error').textContent = '';
+      setButtonLoading('delivery-save-btn', true);
+
+      callApi('saveDelivery', { shopName: currentShop, dateStr: date, supplier: supplier, items: items, amount: amount, paid: deliveryPaid, paymentMethod: deliveryPaymentMethod })
+        .then(function (res) {
+          setButtonLoading('delivery-save-btn', false);
+          if (res.ok) show('screen-success');
+          else document.getElementById('delivery-error').textContent = res.error || 'Ошибка сохранения';
+        })
+        .catch(function () {
+          setButtonLoading('delivery-save-btn', false);
+          document.getElementById('delivery-error').textContent = 'Ошибка соединения, попробуйте ещё раз';
+        });
+    }
+
+    // ---------- Общее ----------
+
+    function backToMenu() {
+      show('screen-menu');
+      refreshCashBalance();
+    }
+
+    // Подтягивает актуальную сумму наличных для текущего магазина
+    // на главный экран (пересчитывается каждый раз заново на сервере).
+    function refreshCashBalance() {
+      const el = document.getElementById('menu-cash-balance');
+      el.textContent = '…';
+      callApi('getShopCashBalance', { shopName: currentShop })
+        .then(function (res) {
+          el.textContent = Number(res.amount).toLocaleString('ru-RU') + ' ₺';
+        })
+        .catch(function () {
+          el.textContent = '—';
+        });
+    }
+  </script>
+
+</body>
+</html>
