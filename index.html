@@ -558,6 +558,27 @@
     let deliveryPaid = true; // по умолчанию "Оплачено"
     let deliveryPaymentMethod = 'Наличные'; // по умолчанию "Наличные"
 
+    // Последняя УСПЕШНО полученная сумма наличных — храним отдельно,
+    // чтобы при сбое сети/сервера экран не стирал уже показанную сумму
+    // на "это не число"/"…"/"—", а просто оставлял прежнее значение.
+    let lastCashBalance = null;
+
+    // Показывает сумму наличных на экране, если она — настоящее число.
+    // Если нет (сервер прислал ошибку/пусто) — оставляет то, что уже
+    // было показано, вместо того чтобы портить экран.
+    function showCashBalance_(rawAmount) {
+      const el = document.getElementById('menu-cash-balance');
+      const amt = Number(rawAmount);
+      if (isFinite(amt)) {
+        lastCashBalance = amt;
+        el.textContent = amt.toLocaleString('ru-RU') + ' ₺';
+      } else if (lastCashBalance !== null) {
+        el.textContent = lastCashBalance.toLocaleString('ru-RU') + ' ₺';
+      } else {
+        el.textContent = '—';
+      }
+    }
+
     // Виды расходов и список поставщиков почти никогда не меняются —
     // запрашиваем их с сервера один раз за сеанс (при первом открытии
     // экрана), а дальше берём из памяти. Экран открывается мгновенно,
@@ -601,8 +622,7 @@
             show('screen-menu');
             // остаток наличных уже пришёл вместе с ответом на вход —
             // второй запрос при входе больше не нужен
-            document.getElementById('menu-cash-balance').textContent =
-              Number(res.cashBalance).toLocaleString('ru-RU') + ' ₺';
+            showCashBalance_(res.cashBalance);
           } else {
             document.getElementById('login-error').textContent = res.error || 'Неверный пароль';
           }
@@ -833,22 +853,25 @@
 
     // Подтягивает актуальную сумму наличных для текущего магазина —
     // вызывается автоматически при возврате в меню, и вручную кнопкой
-    // ↻ рядом с суммой (см. cash-refresh-btn).
+    // ↻ рядом с суммой (см. cash-refresh-btn). Сумма на экране ВСЕГДА
+    // остаётся видна: во время обновления не стирается (только крутится
+    // сама кнопка), а если запрос не удался — просто остаётся прежней,
+    // а не превращается в "…"/"—"/"это не число". Кнопка нужна только
+    // чтобы принудительно проверить свежие цифры — сама сумма и так
+    // подтягивается заново при каждом возврате в меню.
     function refreshCashBalance() {
-      const el = document.getElementById('menu-cash-balance');
       const btn = document.getElementById('cash-refresh-btn');
       if (btn) {
         btn.classList.remove('spinning');
         void btn.offsetWidth; // перезапускает CSS-анимацию, если уже крутилась
         btn.classList.add('spinning');
       }
-      el.textContent = '…';
       callApi('getShopCashBalance', { shopName: currentShop })
         .then(function (res) {
-          el.textContent = Number(res.amount).toLocaleString('ru-RU') + ' ₺';
+          if (res && res.ok !== false) showCashBalance_(res.amount);
         })
         .catch(function () {
-          el.textContent = '—';
+          // не получилось — просто оставляем то, что уже показано
         });
     }
   </script>
