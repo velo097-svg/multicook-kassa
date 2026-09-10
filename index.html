@@ -216,11 +216,36 @@
       color: #666;
     }
 
+    .cash-info-row {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+
     .cash-info-amount {
       font-size: 30px;
       font-weight: 800;
       color: var(--text);
       margin: 4px 0;
+    }
+
+    /* кнопка обновления наличных рядом с суммой */
+    .cash-refresh-btn {
+      background: none;
+      border: none;
+      font-size: 22px;
+      line-height: 1;
+      color: #888;
+      cursor: pointer;
+      padding: 6px;
+      border-radius: 50%;
+    }
+    .cash-refresh-btn:active { background: #e2e8f0; }
+    .cash-refresh-btn.spinning { animation: cash-refresh-spin 0.6s linear; }
+    @keyframes cash-refresh-spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
     }
 
     .cash-info-hint {
@@ -360,11 +385,14 @@
 
     <div class="cash-info">
       <div class="cash-info-label">Наличных сейчас в кассе</div>
-      <div class="cash-info-amount" id="menu-cash-balance">…</div>
+      <div class="cash-info-row">
+        <div class="cash-info-amount" id="menu-cash-balance">…</div>
+        <button class="cash-refresh-btn" id="cash-refresh-btn" onclick="refreshCashBalance()" aria-label="Обновить">↻</button>
+      </div>
       <div class="cash-info-hint">⚠️ Пожалуйста, проверьте наличные</div>
     </div>
 
-    <button class="menu-btn" onclick="openDailyReport()">Вечерний отчёт</button>
+    <button class="menu-btn" onclick="openDailyReport()">Дневной отчёт</button>
     <button class="menu-btn expense" onclick="openExpense()">Расходы</button>
     <button class="menu-btn delivery" onclick="openDelivery()">Поставки</button>
 
@@ -601,18 +629,11 @@
         return;
       }
       document.getElementById('report-error').textContent = '';
-      setButtonLoading('report-save-btn', true);
 
-      callApi('saveDailyReport', { shopName: currentShop, dateStr: date, cash: cash, card: card, iban: iban })
-        .then(function (res) {
-          setButtonLoading('report-save-btn', false);
-          if (res.ok) show('screen-success');
-          else document.getElementById('report-error').textContent = res.error || 'Ошибка сохранения';
-        })
-        .catch(function () {
-          setButtonLoading('report-save-btn', false);
-          document.getElementById('report-error').textContent = 'Ошибка соединения, попробуйте ещё раз';
-        });
+      // "Сохранено" показываем сразу, не дожидаясь ответа сервера —
+      // сам запрос уходит в фоне (см. пояснение в submitBackground_).
+      show('screen-success');
+      submitBackground_('saveDailyReport', { shopName: currentShop, dateStr: date, cash: cash, card: card, iban: iban }, 'Дневной отчёт');
     }
 
     // ---------- Расходы ----------
@@ -678,18 +699,9 @@
         return;
       }
       document.getElementById('expense-error').textContent = '';
-      setButtonLoading('expense-save-btn', true);
 
-      callApi('saveExpense', { shopName: currentShop, dateStr: date, type: selectedExpenseType, amount: amount, comment: comment })
-        .then(function (res) {
-          setButtonLoading('expense-save-btn', false);
-          if (res.ok) show('screen-success');
-          else document.getElementById('expense-error').textContent = res.error || 'Ошибка сохранения';
-        })
-        .catch(function () {
-          setButtonLoading('expense-save-btn', false);
-          document.getElementById('expense-error').textContent = 'Ошибка соединения, попробуйте ещё раз';
-        });
+      show('screen-success');
+      submitBackground_('saveExpense', { shopName: currentShop, dateStr: date, type: selectedExpenseType, amount: amount, comment: comment }, 'Расход');
     }
 
     // ---------- Поставки ----------
@@ -771,17 +783,30 @@
         return;
       }
       document.getElementById('delivery-error').textContent = '';
-      setButtonLoading('delivery-save-btn', true);
 
-      callApi('saveDelivery', { shopName: currentShop, dateStr: date, supplier: supplier, items: items, amount: amount, paid: deliveryPaid, paymentMethod: deliveryPaymentMethod })
+      show('screen-success');
+      submitBackground_('saveDelivery', { shopName: currentShop, dateStr: date, supplier: supplier, items: items, amount: amount, paid: deliveryPaid, paymentMethod: deliveryPaymentMethod }, 'Поставка');
+    }
+
+    /* ==================================================================
+       Общий фоновый механизм сохранения для всех трёх форм (Дневной
+       отчёт / Расходы / Поставки): экран "Сохранено" показывается
+       МГНОВЕННО по нажатию кнопки, а сам запрос к серверу продолжает
+       идти в фоне, пока кассир уже видит подтверждение (или вернулся
+       в меню). Если сервер всё же ответит ошибкой или связи не
+       окажется — покажем предупреждение через alert() (он виден,
+       на каком бы экране кассир ни находился) с просьбой ввести
+       данные заново — так они точно не потеряются незаметно.
+       ================================================================== */
+    function submitBackground_(action, payload, label) {
+      callApi(action, payload)
         .then(function (res) {
-          setButtonLoading('delivery-save-btn', false);
-          if (res.ok) show('screen-success');
-          else document.getElementById('delivery-error').textContent = res.error || 'Ошибка сохранения';
+          if (!res.ok) {
+            alert('⚠️ "' + label + '" НЕ сохранилось: ' + (res.error || 'ошибка сервера') + '\nВведите данные заново.');
+          }
         })
         .catch(function () {
-          setButtonLoading('delivery-save-btn', false);
-          document.getElementById('delivery-error').textContent = 'Ошибка соединения, попробуйте ещё раз';
+          alert('⚠️ "' + label + '" НЕ сохранилось — нет связи с сервером.\nВведите данные заново.');
         });
     }
 
@@ -792,10 +817,17 @@
       refreshCashBalance();
     }
 
-    // Подтягивает актуальную сумму наличных для текущего магазина
-    // на главный экран (пересчитывается каждый раз заново на сервере).
+    // Подтягивает актуальную сумму наличных для текущего магазина —
+    // вызывается автоматически при возврате в меню, и вручную кнопкой
+    // ↻ рядом с суммой (см. cash-refresh-btn).
     function refreshCashBalance() {
       const el = document.getElementById('menu-cash-balance');
+      const btn = document.getElementById('cash-refresh-btn');
+      if (btn) {
+        btn.classList.remove('spinning');
+        void btn.offsetWidth; // перезапускает CSS-анимацию, если уже крутилась
+        btn.classList.add('spinning');
+      }
       el.textContent = '…';
       callApi('getShopCashBalance', { shopName: currentShop })
         .then(function (res) {
