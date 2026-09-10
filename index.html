@@ -216,32 +216,46 @@
       color: #666;
     }
 
+    /* 3 колонки (пустая | сумма | кнопка) равной крайней ширины —
+       так сумма остаётся по центру карточки независимо от того, что
+       кнопка ↻ есть только с одной стороны от неё */
     .cash-info-row {
-      display: flex;
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
       align-items: center;
-      justify-content: center;
-      gap: 6px;
+      column-gap: 6px;
     }
 
     .cash-info-amount {
+      grid-column: 2;
       font-size: 30px;
       font-weight: 800;
       color: var(--text);
       margin: 4px 0;
+      white-space: nowrap;
     }
 
     /* кнопка обновления наличных рядом с суммой */
     .cash-refresh-btn {
-      background: none;
+      grid-column: 3;
+      justify-self: start;
+      flex-shrink: 0;
+      width: 32px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #e2e8f0;
       border: none;
-      font-size: 22px;
-      line-height: 1;
-      color: #888;
-      cursor: pointer;
-      padding: 6px;
       border-radius: 50%;
+      font-size: 18px;
+      line-height: 1;
+      color: #556;
+      cursor: pointer;
+      padding: 0;
+      transition: background 0.15s, transform 0.1s;
     }
-    .cash-refresh-btn:active { background: #e2e8f0; }
+    .cash-refresh-btn:active { background: #cbd5e1; transform: scale(0.92); }
     .cash-refresh-btn.spinning { animation: cash-refresh-spin 0.6s linear; }
     @keyframes cash-refresh-spin {
       from { transform: rotate(0deg); }
