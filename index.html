@@ -45,6 +45,21 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
+  <title>Касса</title>
+
+  <!-- ================================================================
+       PWA — превращает страницу в "приложение": значок на рабочем
+       столе телефона, открытие без адресной строки браузера. Файлы
+       manifest.json и sw.js должны лежать РЯДОМ с этим файлом (в той
+       же папке репозитория на GitHub). Ничего внутри этого блока
+       трогать не нужно.
+       ================================================================ -->
+  <link rel="manifest" href="./manifest.json">
+  <meta name="theme-color" content="#2e7d32">
+  <link rel="icon" href="./icons/icon-192.png">
+  <link rel="apple-touch-icon" href="./icons/icon-192.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <style>
     /* ==================================================================
        ⚙️ БЛОК ОФОРМЛЕНИЯ — цвета и размеры. Можно менять смело,
@@ -268,6 +283,19 @@
       font-weight: 600;
     }
 
+    /* Плашка "не отправлено" — офлайн-очередь, см. описание в <script> */
+    .pending-badge {
+      background: #fff3e0;
+      color: #b26a00;
+      font-size: 13px;
+      font-weight: 600;
+      text-align: center;
+      padding: 8px 10px;
+      border-radius: 8px;
+      margin: -6px 0 14px;
+    }
+    .pending-badge.hidden { display: none; }
+
     .menu-btn.expense { background: var(--orange); }
     .menu-btn.delivery { background: var(--blue); }
 
@@ -405,6 +433,10 @@
       </div>
       <div class="cash-info-hint">⚠️ Пожалуйста, проверьте наличные</div>
     </div>
+
+    <!-- Видна только если есть несохранённые записи (нет интернета) —
+         досылаются сами, ничего нажимать не нужно. -->
+    <div id="pending-badge" class="pending-badge hidden"></div>
 
     <button class="menu-btn" onclick="openDailyReport()">Дневной отчёт</button>
     <button class="menu-btn expense" onclick="openExpense()">Расходы</button>
@@ -553,6 +585,89 @@
       });
     }
 
+    // Включает "режим приложения" (значок на рабочем столе, кэш
+    // страницы для мгновенного/офлайн-открытия) — см. sw.js рядом
+    // с этим файлом. Если браузер совсем старый и не умеет сервис-
+    // воркеры — просто ничего не произойдёт, сайт работает как обычно.
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', function () {
+        navigator.serviceWorker.register('./sw.js').catch(function () {});
+      });
+    }
+
+    /* ==================================================================
+       ОФЛАЙН-ОЧЕРЕДЬ: если в момент "Сохранить" нет интернета (или
+       сервер не ответил), запись не теряется — она откладывается на
+       самом телефоне (в localStorage) и досылается сама, как только
+       связь появится: при возврате в приложение, при восстановлении
+       интернета и просто раз в 30 секунд на всякий случай. Кассиру
+       показывается маленькая плашка "⏳ Не отправлено: N" — просто
+       чтобы было видно, что что-то ещё в очереди, без необходимости
+       что-либо нажимать.
+       ================================================================== */
+    const QUEUE_KEY = 'kassa_pending_queue_v1';
+
+    function loadQueue_() {
+      try { return JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]'); }
+      catch (e) { return []; }
+    }
+    function saveQueue_(queue) {
+      try { localStorage.setItem(QUEUE_KEY, JSON.stringify(queue)); } catch (e) {}
+    }
+    function queuePending_(action, payload, label) {
+      const queue = loadQueue_();
+      queue.push({ id: Date.now() + '_' + Math.random().toString(36).slice(2), action: action, payload: payload, label: label });
+      saveQueue_(queue);
+      updatePendingBadge_();
+    }
+    function removeFromQueue_(id) {
+      saveQueue_(loadQueue_().filter(function (item) { return item.id !== id; }));
+      updatePendingBadge_();
+    }
+    function updatePendingBadge_() {
+      const el = document.getElementById('pending-badge');
+      if (!el) return;
+      const n = loadQueue_().length;
+      if (n > 0) {
+        el.textContent = '⏳ Не отправлено: ' + n + ' — досылаем само собой';
+        el.classList.remove('hidden');
+      } else {
+        el.classList.add('hidden');
+      }
+    }
+
+    let queueSending_ = false; // защита от параллельного повторного запуска
+
+    // Пробует отправить очередь по одной записи. Успешно отправленные —
+    // убираются из очереди. Если запись не удалась (нет связи или
+    // сервер ответил ошибкой) — прерываем на ней и попробуем всю
+    // очередь заново в следующий раз (по порядку, старые записи первыми).
+    function trySendQueue_() {
+      if (queueSending_) return;
+      const queue = loadQueue_();
+      if (!queue.length) return;
+      queueSending_ = true;
+
+      const item = queue[0];
+      callApi(item.action, item.payload)
+        .then(function (res) {
+          queueSending_ = false;
+          if (res && res.ok !== false) {
+            removeFromQueue_(item.id);
+            trySendQueue_(); // сразу пробуем следующую
+          }
+        })
+        .catch(function () {
+          queueSending_ = false; // не получилось — оставляем в очереди, попробуем позже
+        });
+    }
+
+    window.addEventListener('online', function () { trySendQueue_(); });
+    document.addEventListener('visibilitychange', function () {
+      if (!document.hidden) trySendQueue_();
+    });
+    setInterval(trySendQueue_, 30000);
+
     let currentShop = null;
     let selectedExpenseType = null;
     let deliveryPaid = true; // по умолчанию "Оплачено"
@@ -628,6 +743,8 @@
             // всегда точна к моменту, когда кассир на неё посмотрит.
             showCashBalance_(res.cashBalance);
             refreshCashBalance();
+            trySendQueue_();
+            updatePendingBadge_();
           } else {
             document.getElementById('login-error').textContent = res.error || 'Неверный пароль';
           }
@@ -832,10 +949,12 @@
        отчёт / Расходы / Поставки): экран "Сохранено" показывается
        МГНОВЕННО по нажатию кнопки, а сам запрос к серверу продолжает
        идти в фоне, пока кассир уже видит подтверждение (или вернулся
-       в меню). Если сервер всё же ответит ошибкой или связи не
-       окажется — покажем предупреждение через alert() (он виден,
-       на каком бы экране кассир ни находился) с просьбой ввести
-       данные заново — так они точно не потеряются незаметно.
+       в меню). Если связи с сервером нет прямо сейчас — запись НЕ
+       теряется: она уходит в офлайн-очередь (см. блок выше) и
+       досылается сама, как только связь появится, без участия
+       кассира. Alert() показывается только если сервер ЯВНО ответил,
+       что данные некорректны (редкий случай) — тогда действительно
+       нужно ввести заново.
        ================================================================== */
     function submitBackground_(action, payload, label) {
       callApi(action, payload)
@@ -845,7 +964,9 @@
           }
         })
         .catch(function () {
-          alert('⚠️ "' + label + '" НЕ сохранилось — нет связи с сервером.\nВведите данные заново.');
+          // нет связи с сервером — не теряем запись, откладываем и
+          // досылаем сами позже (см. trySendQueue_ выше)
+          queuePending_(action, payload, label);
         });
     }
 
@@ -854,6 +975,8 @@
     function backToMenu() {
       show('screen-menu');
       refreshCashBalance();
+      trySendQueue_();
+      updatePendingBadge_();
     }
 
     // Подтягивает актуальную сумму наличных для текущего магазина —
@@ -889,6 +1012,12 @@
           if (!isRetry) setTimeout(function () { refreshCashBalance(true); }, 2000);
         });
     }
+
+    // При самом открытии страницы — если с прошлого раза в очереди
+    // остались несохранённые записи (например, закрыли приложение при
+    // отсутствии интернета), пробуем их отправить сразу же.
+    updatePendingBadge_();
+    trySendQueue_();
   </script>
 
 </body>
